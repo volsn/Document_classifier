@@ -44,10 +44,10 @@ class Scanner:
 
     MATCHES = {
     "balance": 
-        ["бухгалтерский", "внеоборотные активы", "оборотные активы", \
+        ["бухгалтерский", "бухгалтерская", "бухгалтерское", "внеоборотные активы", "оборотные активы", \
         "капитал и резервы", "краткосрочные обязательства", "движение капитала", \
         "прибыль (убыток) до налогообложения", "чиcтая прибыль (убыток)"],
-    "others": ["Отчет", "Заявка"],
+    "others": ["отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
     }
 
     def __init__(self, path, file_name):
@@ -73,21 +73,16 @@ class Scanner:
 
         name = 0
         for page in pages: 
-            #page.image.save(os.path.join('tmp', '{}.png'.format(name)))
+            page.image.save(os.path.join('tmp', '{}.png'.format(name)))
             page.filename = '{}.png'.format(name)
             self.files.append(page)
             name += 1
 
-
+        """
         for file in self.files:
             file.get_text()
-
-
-        for file in self.files:
             file.type = self._define_type(file.text)
-            print(file.type)
-        
-
+        """ 
 
     def _unzip(self, path, file_name):
         with zipfile.ZipFile(os.path.join(path, file_name), 'r') as zip_ref:
@@ -130,9 +125,34 @@ class Scanner:
         for doc_type in self.MATCHES.keys():
             for match in self.MATCHES[doc_type]:
                 if re.search(match, text, flags=re.I):
+                    if doc_type == 'others':
+                        return 'others/{}'.format(match)
                     return doc_type
+    
+    def _divide_into_documents(self):
+        
+        types = []
+        recent_type = []
 
+        previous_type = files[0].type
 
+        for file in files:
+            if file.type is None:
+                recent_type.append(file)
+
+            elif file.type == previous_type:
+                recent_type.append(file)
+                previous_type = file.type
+
+            else:
+                types.append(recent_type)
+                recent_type = []
+                recent_type.append(file)
+                previous_type = file.type
+
+        types.append(recent_type)
+
+        return types
 
 
 if __name__ == '__main__':
