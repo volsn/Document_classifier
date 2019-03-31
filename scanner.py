@@ -9,6 +9,7 @@ from PIL import Image
 from pytesseract import image_to_string
 import sys
 import re
+import json
 
 
 class Page:
@@ -18,6 +19,7 @@ class Page:
         self.filename = None
         self.text = None
         self.type = None
+        self.end_file = None
         if kwargs:
             self.__dict__.update(kwargs)
 
@@ -42,13 +44,30 @@ class Page:
 
 class Scanner:
 
+    FILE_END = [
+        "Подпись"
+    ]
+
+    RENT = {
+        'adress': ['по адресу:'],
+        'time': ['срок аренды помещения:'],
+        'landlord': [],
+    }
+
     MATCHES = {
     "balance": 
         ["бухгалтерский", "бухгалтерская", "бухгалтерское", "внеоборотные активы", "оборотные активы", \
         "капитал и резервы", "краткосрочные обязательства", "движение капитала", \
         "прибыль (убыток) до налогообложения", "чиcтая прибыль (убыток)"],
-    "others": ["отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
-    }
+    "rent": ["договор аренды", "предмет договора", "использование помщения", \
+        "срок аренды", "обязанности аредатора", "обязанности арендодателя", \
+        "права арендатора", "права арендодателя", "порядок расчетов", \
+        "арендная плата", "арендной платы", "ответственность сторон"],
+    "statute": ["деятельности общества", "статус общества", \
+        "капитал общества", "участника общества", "выход участника из общества", \
+        "распределение прибыли", "фонды общества", "собрание участников"],
+    "others": ["информационная картьта", "отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
+    }    
 
     def __init__(self, path, file_name):
 
@@ -56,9 +75,9 @@ class Scanner:
 
         if file_name.endswith('.zip') or file_name.endswith('.rar'):
             self._unzip(path, file_name)
-            file_name = [f for f in listdir(path) if f.split('.')[0] == file_name.split('.')[0] and \
+            file_name = [f for f in os.listdir(path) if f.split('.')[0] == file_name.split('.')[0] and \
                             f.split('.')[-1] != file_name.split('.')[-1]]
-
+            file_name = file_name[0]
 
         if file_name.endswith('.pdf'):
             pages = self._convert_to_image(path, file_name, format='PDF')
@@ -70,19 +89,52 @@ class Scanner:
 
         if not os.path.exists('tmp'):
             os.mkdir('tmp')
-
+    
         name = 0
         for page in pages: 
             page.image.save(os.path.join('tmp', '{}.png'.format(name)))
             page.filename = '{}.png'.format(name)
             self.files.append(page)
             name += 1
-
-        """
+        
         for file in self.files:
             file.get_text()
             file.type = self._define_type(file.text)
-        """ 
+
+        for match in self.FILE_END:
+            if re.search(match, page.text, flags=re.I):
+                page.end_file = True
+
+        self.documents = self._divide_into_documents()
+        print(self.documents)
+
+        answer = []
+
+        for document in self.documents:
+            doc = {}
+            type_ = document[0].type 
+            if type_ == 'statute':
+                
+                doc['type'] = 'statute'
+            elif type_ == 'rent':
+                context = {}
+                data = self._analyze_rent(document)
+                context['adress'] = data[0]
+                context['time'] = data[1]
+                context['landlord'] = data[2]
+                
+                doc['type'] = 'rent'
+                doc['context'] = context
+            elif type_ == 'balance':
+                doc['type'] = 'balance'
+            else:
+                pass
+
+            answer.append(doc)
+
+        print(answer)
+
+
 
     def _unzip(self, path, file_name):
         with zipfile.ZipFile(os.path.join(path, file_name), 'r') as zip_ref:
@@ -94,14 +146,9 @@ class Scanner:
         
         elif format == 'PDF':
             pages = list()
-            print('foo')
             images = pdf2image.convert_from_path(file_name, dpi=200, fmt="png")
-            print('bar')
-            name = 0
             for img in images:
                 pages.append(Page(image=img))
-                img.save(os.path.join('tmp', '{}.png'.format(name)))
-                name += 1
             return pages
 
         elif format == 'TIF':
@@ -116,7 +163,7 @@ class Scanner:
                 
                 try:
                     pages.append(Page(image=img))
-                except Error:
+                except Exception:
                     pass
             return pages
 
@@ -131,28 +178,45 @@ class Scanner:
     
     def _divide_into_documents(self):
         
-        types = []
-        recent_type = []
+        documents = []
+        recent_document = []
 
-        previous_type = files[0].type
+        for page in self.files:
+            recent_document.append(page)
+            if page.end_file:
+                documents.append(recent_document)
+                recent_document = []
+        if recent_document != []:
+            documents.append(recent_document)
 
-        for file in files:
-            if file.type is None:
-                recent_type.append(file)
+        return documents
 
-            elif file.type == previous_type:
-                recent_type.append(file)
-                previous_type = file.type
+    def _analyze_statute(self, document):
+        pass
 
-            else:
-                types.append(recent_type)
-                recent_type = []
-                recent_type.append(file)
-                previous_type = file.type
+    def _analyze_rent(self, document):
 
-        types.append(recent_type)
+        text = ''
 
-        return types
+        for page in document:
+            text += page.text
+        
+        adress = ''
+        for match in self.RENT['adress']:
+            if re.search(r'{}  [а-я]*[^.(/\\]'.format(match), text, flags=re.I):
+                adress = re.search(r'{}  ([а-я]*[^.(/\\])'.format(match), text, flags=re.I)
+                break
+
+        time = ''
+        for match in self.RENT['time']:
+            if re.search(r'{} [а-я 0-9]*[^.(/\\]'.format(match), text, flags=re.I):
+                time = re.search(r'{} ([а-я 0-9]*[^.(/\\])'.format(match), text, flags=re.I)
+                break
+
+        # TODO
+        landlord = ''
+
+        return (adress, time, landlord)
 
 
 if __name__ == '__main__':
