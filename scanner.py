@@ -45,7 +45,7 @@ class Page:
 class Scanner:
 
     FILE_END = [
-        "Подпись",
+        "(подпись)",
     ]
 
     STATUTE = {
@@ -60,7 +60,7 @@ class Scanner:
     RENT = {
         'adress': ['по адресу:'],
         'time': ['срок аренды помещения:'],
-        'landlord': ['\"арендодатель\"'],
+        'landlord': ['“арендодатель”'],
     }
 
     MATCHES = {
@@ -98,7 +98,12 @@ class Scanner:
 
         if not os.path.exists('tmp'):
             os.mkdir('tmp')
-    
+        if not os.path.exists('text'):
+            os.mkdir('text')
+
+        """
+        For test purpose
+        """
         name = 0
         for page in pages: 
             page.image.save(os.path.join('tmp', '{}.png'.format(name)))
@@ -106,24 +111,40 @@ class Scanner:
             self.files.append(page)
             name += 1
         
+        name = 0
         for file in self.files:
             file.get_text()
+            with open('text/{}.txt'.format(name), 'w') as f: # Used for testing as well
+                f.write(file.text)
             file.type = self._define_type(file.text)
+            name += 1
+            for match in self.FILE_END:
+                if re.search(match, file.text, flags=re.I):
+                    file.end_file = True
+        
 
-        for match in self.FILE_END:
-            if re.search(match, page.text, flags=re.I):
-                page.end_file = True
+        """
+        for name in os.listdir('text'):
+            with open('text/{}'.format(name), 'r') as f:
+                text = f.read()
+            page = Page(text=text)
+            page.type = self._define_type(page.text)
+            self.files.append(page)
+        """
 
-        self.documents = self._divide_into_documents()
-        print(self.documents)
+        if len(self.files) > 8:
+            self.documents = self._divide_into_documents()
+        else:
+            self.documents = [self.files]
 
         answer = []
+
+        print('fdfd')
 
         for document in self.documents:
             doc = {}
             type_ = document[0].type 
             if type_ == 'statute':
-                #return (rights, authority, term, powers, limits)
                 context = {}
                 data = self._analyze_statute(document)
 
@@ -148,7 +169,7 @@ class Scanner:
                 doc['type'] = 'balance'
             else:
                 pass
-                
+
             if doc != {}:
                 answer.append(doc)
 
@@ -167,24 +188,36 @@ class Scanner:
         elif format == 'PDF':
             pages = list()
             images = pdf2image.convert_from_path(file_name, dpi=200, fmt="png")
+            if not os.path.exists('tmp'):
+                os.mkdir('tmp')
+            
+            name = 0
             for img in images:
+                img.save('tmp/{}.png'.format(name))
                 pages.append(Page(image=img))
+                name += 1
             return pages
 
         elif format == 'TIF':
             pages = list()
             img = Image.open(file_name)
+            if not os.path.exists('tmp'):
+                os.mkdir('tmp')
 
-            for i in range(10):
+            for i in range(100):
                 try:
                     img.seek(i)
                 except EOFError:
                     break
                 
                 try:
-                    pages.append(Page(image=img))
+                    img.save('tmp/{}.png'.format(i))
+                    temp = Image.open('tmp/{}.png'.format(i))
+                    pages.append(Page(image=temp))
                 except Exception:
                     pass
+
+            # TODO 
             return pages
 
     def _define_type(self, text):
@@ -257,29 +290,32 @@ class Scanner:
 
         for page in document:
             text += page.text
-        
+
+
         adress = ''
         for match in self.RENT['adress']:
-            if re.search(r'{}  [а-я]*[^.(/\\]'.format(match), text, flags=re.I):
-                adress = re.search(r'{}  ([а-я]*[^.(/\\])'.format(match), text, flags=re.I)
+            if re.search(r'{} [а-я .,\n0-9/]*[^кв.м]?[^(]?'.format(match), text, flags=re.I):
+                adress = re.search(r'{} [а-я .,\n0-9/]*[^кв.м]?[^(]?'.format(match), text, flags=re.I)
+                adress = adress.group(0)
                 break
 
         time = ''
         for match in self.RENT['time']:
             if re.search(r'{} [а-я 0-9]*[^.(/\\]'.format(match), text, flags=re.I):
                 time = re.search(r'{} ([а-я 0-9]*[^.(/\\])'.format(match), text, flags=re.I)
+                time = time.group(0)
                 break
-
-        landlord = []
+        
+        landlord = ''
         for match in self.RENT['landlord']:
-            if re.search(r'{}'.format(match), text, flags=re.I):
-                company = re.search(r'("[а-я]*")[()/\\,.а-я\s]*"арендодатель"', text, flags=re.I)
-                name = re.search(r'([А-Я]{1}[а-я]*\s+){3}[()/\\,.а-я\s]*"арендодатель"', text)
-                landlord.append(company)
-                landlord.append(name)
+            if re.search(r'(«[а-я-\s]*»)?(«[а-я-\s]*»)?[()/\\,.а-я\s]*{}'.format(match), text, flags=re.I):
+                company = re.search(r'(«[а-я-\s]*»)?(«[а-я-\s]*»)?[()/\\,.а-я\s]*{}'.format(match), text, flags=re.I)
+                landlord = company.group(0)
                 break 
 
+
         return (adress, time, landlord)
+
 
 
 if __name__ == '__main__':
