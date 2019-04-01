@@ -45,13 +45,22 @@ class Page:
 class Scanner:
 
     FILE_END = [
-        "Подпись"
+        "Подпись",
     ]
+
+    STATUTE = {
+        'rights': ['общество вправе осуществлять', "общество обладает"],
+        'authority': ['органами общества', "органами управления общества", "органом общества" \
+            "органом управления общества"],
+        'term': ['директор общества принимается', "срок полномочий", "директор назначается", "срок полномочий"],
+        "powers": ['директор [а-я ]{0,20} осуществляет [а-я ]{0,20} полномочия:', 'директор общества:'],
+        "limits": ['директор [а-я ]{0,20} не вправе'],
+    }
 
     RENT = {
         'adress': ['по адресу:'],
         'time': ['срок аренды помещения:'],
-        'landlord': [],
+        'landlord': ['\"арендодатель\"'],
     }
 
     MATCHES = {
@@ -114,8 +123,18 @@ class Scanner:
             doc = {}
             type_ = document[0].type 
             if type_ == 'statute':
-                
+                #return (rights, authority, term, powers, limits)
+                context = {}
+                data = self._analyze_statute(document)
+
+                context['rights'] = data[0]
+                context['authority'] = data[1]
+                context['term'] = data[2]
+                context['powers'] = data[3]
+                context['limits'] = data[4]
+
                 doc['type'] = 'statute'
+                doc['context'] = context
             elif type_ == 'rent':
                 context = {}
                 data = self._analyze_rent(document)
@@ -129,8 +148,9 @@ class Scanner:
                 doc['type'] = 'balance'
             else:
                 pass
-
-            answer.append(doc)
+                
+            if doc != {}:
+                answer.append(doc)
 
         print(answer)
 
@@ -192,7 +212,44 @@ class Scanner:
         return documents
 
     def _analyze_statute(self, document):
-        pass
+        
+        text = ''
+
+        for page in document:
+            text += page.text
+
+        rights = []
+        for match in STATUTE['rights']:
+            right = re.search(r'({} [а-я]*.)'.format(match), text, flags=re.I)
+            if right:
+                right.append(right)
+        
+        authority = []
+        for match in STATUTE['authority']:
+            authority_ = re.search(r'({} [а-я]*.)'.format(match), text, flags=re.I)
+            if authority_:
+                authority_.append(right)
+
+        term = []
+        for match in STATUTE['term']:
+            term = re.search(r'({} [а-я]*.)'.format(match), text, flags=re.I)
+            if term:
+                term.append(right)
+
+        powers = []
+        for match in STATUTE['term']:
+            term = re.search(r'({} [а-я]*.)'.format(match), text, flags=re.I)
+            if term:
+                term.append(right)
+
+        limits = []
+        for match in STATUTE['limits']:
+            limits = re.search(r'({} [а-я]*.)'.format(match), text, flags=re.I)
+            if limits:
+                limits.append(right)
+
+        return (rights, authority, term, powers, limits)
+
 
     def _analyze_rent(self, document):
 
@@ -213,8 +270,14 @@ class Scanner:
                 time = re.search(r'{} ([а-я 0-9]*[^.(/\\])'.format(match), text, flags=re.I)
                 break
 
-        # TODO
-        landlord = ''
+        landlord = []
+        for match in self.RENT['landlord']:
+            if re.search(r'{}'.format(match), text, flags=re.I):
+                company = re.search(r'("[а-я]*")[()/\\,.а-я\s]*"арендодатель"', text, flags=re.I)
+                name = re.search(r'([А-Я]{1}[а-я]*\s+){3}[()/\\,.а-я\s]*"арендодатель"', text)
+                landlord.append(company)
+                landlord.append(name)
+                break 
 
         return (adress, time, landlord)
 
