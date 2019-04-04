@@ -1,5 +1,3 @@
-import cv2
-import numpy as np
 import os
 import zipfile
 import PyPDF2
@@ -35,20 +33,6 @@ class Page:
     def get_text(self):
 
         self.text = image_to_string(self.image, lang="rus")
-
-    def _prepare_for_reading(self):
-
-        img = cv2.imread(self.filename)
-        im_gray = cv2.imread(self.filename, cv2.IMREAD_GRAYSCALE)
-
-        (thresh, im_bw) = cv2.threshold(im_gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-
-        thresh = 127
-        im_bw = cv2.threshold(im_gray, thresh, 255, cv2.THRESH_BINARY)[1]
-        edges = cv2.Canny(im_bw, 50, 150, apertureSize = 3)
-        cv2.imwrite('edges.png', edges)
-
-        cv2.imwrite('bw_image.png', im_bw)
 
 
 class Scanner:
