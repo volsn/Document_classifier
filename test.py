@@ -10,20 +10,10 @@ from pytesseract import image_to_string
 import sys
 import re
 import json
-from flask import render_template, Flask, request, make_response
-from werkzeug import secure_filename
 
-app = Flask(__name__)
-
-DEBUG = True
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 class Page:
     def __init__(self, **kwargs):
-
         self.image = None
         self.filename = None
         self.text = None
@@ -33,11 +23,9 @@ class Page:
             self.__dict__.update(kwargs)
 
     def get_text(self):
-
         self.text = image_to_string(self.image, lang="rus")
 
     def _prepare_for_reading(self):
-
         img = cv2.imread(self.filename)
         im_gray = cv2.imread(self.filename, cv2.IMREAD_GRAYSCALE)
 
@@ -45,27 +33,16 @@ class Page:
 
         thresh = 127
         im_bw = cv2.threshold(im_gray, thresh, 255, cv2.THRESH_BINARY)[1]
-        edges = cv2.Canny(im_bw, 50, 150, apertureSize = 3)
+        edges = cv2.Canny(im_bw, 50, 150, apertureSize=3)
         cv2.imwrite('edges.png', edges)
 
         cv2.imwrite('bw_image.png', im_bw)
 
 
 class Scanner:
-
     FILE_END = [
         "(подпись)",
     ]
-
-    STATUTE = {
-        'rights': ['общество вправе', "общество обладает", "Общество может"],
-        'authority': ["УПРАВЛЕНИЕ ОБЩЕСТВОМ", 'органами общества', "органами управления общества", "органом общества", \
-                                                                           "органам управления общества"],
-        'term': ['директор общества принимается', "срок полномочий", "директор назначается", "срок полномочий", 'Директор избирается'],
-        "powers": ['директор [а-я ]{0,20} осуществляет [а-я ]{0,20} полномочия:', 'директор [а-я ]{0,60}общества:'],
-        "limits": ['директор [а-я ]{0,20} не вправе', 'не вправе'],
-        'technical': r'[а-я \n,“"\':;\d]*)\.?;?',
-    }
 
     RENT = {
         'adress': ['по адресу:'],
@@ -74,29 +51,31 @@ class Scanner:
     }
 
     MATCHES = {
-    "balance": 
-        ["бухгалтерский", "бухгалтерская", "бухгалтерское", "внеоборотные активы", "оборотные активы", \
-        "капитал и резервы", "краткосрочные обязательства", "движение капитала", \
-        "прибыль (убыток) до налогообложения", "чиcтая прибыль (убыток)"],
-    "rent": ["договор аренды", "предмет договора", "использование помщения", \
-        "срок аренды", "обязанности аредатора", "обязанности арендодателя", \
-        "права арендатора", "права арендодателя", "порядок расчетов", \
-        "арендная плата", "арендной платы", "ответственность сторон"],
-    "statute": ["деятельности общества", "статус общества", \
-        "капитал общества", "участника общества", "выход участника из общества", \
-        "распределение прибыли", "фонды общества", "собрание участников"],
-    "others": ["информационная картьта", "отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
-    }    
+        "balance":
+            ["бухгалтерский", "бухгалтерская", "бухгалтерское", "внеоборотные активы", "оборотные активы", \
+             "капитал и резервы", "краткосрочные обязательства", "движение капитала", \
+             "прибыль (убыток) до налогообложения", "чиcтая прибыль (убыток)"],
+        "rent": ["договор аренды", "предмет договора", "использование помщения", \
+                 "срок аренды", "обязанности аредатора", "обязанности арендодателя", \
+                 "права арендатора", "права арендодателя", "порядок расчетов", \
+                 "арендная плата", "арендной платы", "ответственность сторон"],
+        "statute": ["деятельности общества", "статус общества", \
+                    "капитал общества", "участника общества", "выход участника из общества", \
+                    "распределение прибыли", "фонды общества", "собрание участников"],
+        "others": ["информационная картьта", "отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
+    }
 
     def __init__(self, path, file_name):
 
         self.files = []
         self.documents = []
 
+        """"
+
         if file_name.endswith('.zip') or file_name.endswith('.rar'):
             self._unzip(path, file_name)
             file_name = [f for f in os.listdir(path) if f.split('.')[0] == file_name.split('.')[0] and \
-                            f.split('.')[-1] != file_name.split('.')[-1]]
+                         f.split('.')[-1] != file_name.split('.')[-1]]
             file_name = file_name[0]
 
         if file_name.endswith('.pdf'):
@@ -105,21 +84,27 @@ class Scanner:
         if file_name.endswith('.tif') or file_name.endswith('.tiff'):
             pages = self._convert_to_image(path, file_name, format='TIF')
 
-
         if not os.path.exists('tmp'):
             os.mkdir('tmp')
         if not os.path.exists('text'):
             os.mkdir('text')
 
-        """
-        For test purpose
-        """
         name = 0
-        for page in pages: 
+        for page in pages:
             page.image.save(os.path.join('tmp', '{}.png'.format(name)))
             page.filename = '{}.png'.format(name)
             self.files.append(page)
             name += 1
+        """
+
+        for name in os.listdir('text'):
+            with open('text/{}'.format(name), 'r') as f:
+                text = f.read()
+            page = Page(text=text)
+            page.type = self._define_type(page.text)
+            self.files.append(page)
+
+        self.documents = [self.files]
 
     def prepare(self):
 
@@ -142,6 +127,8 @@ class Scanner:
     def analyze(self):
         answer = []
 
+        print('fdfd')
+
         for document in self.documents:
             doc = {}
             type_ = self._document_type(document)
@@ -163,7 +150,7 @@ class Scanner:
                 context['adress'] = data[0]
                 context['time'] = data[1]
                 context['landlord'] = data[2]
-                
+
                 doc['type'] = 'rent'
                 doc['context'] = context
             elif type_ == 'balance':
@@ -174,8 +161,6 @@ class Scanner:
             if doc != {}:
                 answer.append(doc)
 
-        print(answer)
-
         return answer
 
     def _unzip(self, path, file_name):
@@ -185,13 +170,13 @@ class Scanner:
     def _convert_to_image(self, path, file_name, format=None):
         if format is None:
             return None
-        
+
         elif format == 'PDF':
             pages = list()
             images = pdf2image.convert_from_path(file_name, dpi=200, fmt="png")
             if not os.path.exists('tmp'):
                 os.mkdir('tmp')
-            
+
             name = 0
             for img in images:
                 img.save('tmp/{}.png'.format(name))
@@ -210,7 +195,7 @@ class Scanner:
                     img.seek(i)
                 except EOFError:
                     break
-                
+
                 try:
                     img.save('tmp/{}.png'.format(i))
                     temp = Image.open('tmp/{}.png'.format(i))
@@ -218,7 +203,7 @@ class Scanner:
                 except Exception:
                     pass
 
-            # TODO 
+            # TODO
             return pages
 
     def _define_type(self, text):
@@ -229,9 +214,9 @@ class Scanner:
                     if doc_type == 'others':
                         return 'others/{}'.format(match)
                     return doc_type
-    
+
     def _divide_into_documents(self):
-        
+
         documents = []
         recent_document = []
 
@@ -249,16 +234,23 @@ class Scanner:
 
         potential_types = {}
         for page in document:
-            if page.type is None:
-                page.type = 'NotDefined'
+            print(page.type)
             if page.type not in potential_types.keys():
                 potential_types[page.type] = 0
             potential_types[page.type] += 1
 
         inverse = [(value, key) for key, value in potential_types.items()]
-        print(inverse)
         return max(inverse)[1]
 
+    STATUTE = {
+        'rights': ['общество вправе', "общество обладает", "Общество может"],
+        'authority': ["УПРАВЛЕНИЕ ОБЩЕСТВОМ", 'органами общества', "органами управления общества", "органом общества", \
+                                                                           "органам управления общества"],
+        'term': ['директор общества принимается', "срок полномочий", "директор назначается", "срок полномочий", 'Директор избирается'],
+        "powers": ['директор [а-я ]{0,20} осуществляет [а-я ]{0,20} полномочия:', 'директор [а-я ]{0,60}общества:'],
+        "limits": ['директор [а-я ]{0,20} не вправе', 'не вправе'],
+        'technical': r'[а-я \n,“"\':;\d]*)\.?;?',
+    }
 
     def _analyze_statute(self, document):
 
@@ -319,33 +311,18 @@ class Scanner:
                 time = re.search(r'{} ([а-я 0-9]*[^.(/\\])'.format(match), text, flags=re.I)
                 time = time.group(0)
                 break
-        
+
         landlord = ''
         for match in self.RENT['landlord']:
             if re.search(r'(«[а-я-\s]*»)?(«[а-я-\s]*»)?[()/\\,.а-я\s]*{}'.format(match), text, flags=re.I):
                 company = re.search(r'(«[а-я-\s]*»)?(«[а-я-\s]*»)?[()/\\,.а-я\s]*{}'.format(match), text, flags=re.I)
                 landlord = company.group(0)
-                break 
+                break
 
         return (adress, time, landlord)
 
 
-@app.route('/uploader', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST':
-        f = request.files['file']
-        f.save(f.filename)
-
-        scanner = Scanner('', f.filename)
-        scanner.prepare()
-        result = scanner.analyze()
-
-        resp = make_response()
-        resp.headers['Result'] = result
-
-        return resp
-
-
-
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+if __name__ == '__main__':
+    scanner = Scanner('', sys.argv[1])
+    #scanner.prepare()
+    print(scanner.analyze())
