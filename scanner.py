@@ -54,7 +54,8 @@ class Scanner:
     RENT = {
         'adress': ['по адресу:'],
         'time': ['срок аренды помещения:'],
-        'landlord': ['“арендодатель”'],
+        'landlord': ['арендодатель'],
+        'technical': r'[а-я \n,“"\':;\d]*\.?;?',
     }
 
     MATCHES = {
@@ -95,15 +96,25 @@ class Scanner:
         if not os.path.exists('text'):
             os.mkdir('text')
 
-        """
-        For test purpose
-        """
+
         name = 0
         for page in pages: 
             page.image.save(os.path.join('tmp', '{}.png'.format(name)))
             page.filename = '{}.png'.format(name)
             self.files.append(page)
             name += 1
+
+
+        """
+        for name in os.listdir('text'):
+            with open('text/{}'.format(name), 'r') as f:
+                text = f.read()
+            page = Page(text=text)
+            page.type = self._define_type(page.text)
+            self.files.append(page)
+
+        self.documents = [self.files]
+        """
 
     def prepare(self):
 
@@ -299,15 +310,15 @@ class Scanner:
 
         time = ''
         for match in self.RENT['time']:
-            if re.search(r'{} [а-я 0-9]*[^.(/\\]'.format(match), text, flags=re.I):
-                time = re.search(r'{} ([а-я 0-9]*[^.(/\\])'.format(match), text, flags=re.I)
+            if re.search(r'срок аренды помещения:[а-я \n,“"\':;\d]*\.?;?', text, flags=re.I):
+                time = re.search(r'{}{}'.format(match, self.RENT['technical']), text, flags=re.I)
                 time = time.group(0)
                 break
         
         landlord = ''
         for match in self.RENT['landlord']:
-            if re.search(r'(«[а-я-\s]*»)?(«[а-я-\s]*»)?[()/\\,.а-я\s]*{}'.format(match), text, flags=re.I):
-                company = re.search(r'(«[а-я-\s]*»)?(«[а-я-\s]*»)?[()/\\,.а-я\s]*{}'.format(match), text, flags=re.I)
+            if re.search(r'\n.*\n.*{}.*\n.*\n'.format(match), text, flags=re.I):
+                company = re.search(r'(\n.*\n.*{}.*\n.*\n)'.format(match), text, flags=re.I)
                 landlord = company.group(0)
                 break 
 
@@ -323,13 +334,11 @@ def upload_file():
         scanner = Scanner('', f.filename)
         scanner.prepare()
         result = scanner.analyze()
+        result = result[0]
 
-        resp = make_response()
-        resp.headers['Result'] = result
+        answer = json.dumps(result)
 
-        return resp
-
-
+        return answer
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
