@@ -10,6 +10,8 @@ import re
 import json
 from flask import render_template, Flask, request, make_response
 from werkzeug import secure_filename
+import cv2
+import imutils
 
 app = Flask(__name__)
 
@@ -27,6 +29,7 @@ class Page:
         self.text = None
         self.type = None
         self.end_file = None
+        self.rotates = None
         if kwargs:
             self.__dict__.update(kwargs)
 
@@ -34,6 +37,27 @@ class Page:
 
         self.text = image_to_string(self.image, lang="rus")
 
+    def is_passport(self):
+
+        self.image = cv2.imread('tmp/{}'.format(self.filename))
+
+        cascade = cv2.CascadeClassifier('cascade.xml')
+        self.rotates = 0
+
+        (h, w, d) = self.image.shape
+
+        gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+
+        for _ in range(4):
+
+            faces = cascade.detectMultiScale(gray, 1.3, 5)
+            if faces is not ():
+                return True
+
+            gray = imutils.rotate_bound(gray, 90)
+            self.rotates += 1
+
+        return False
 
 class Scanner:
 
@@ -123,16 +147,16 @@ class Scanner:
             file.get_text()
             with open('text/{}.txt'.format(name), 'w') as f:  # Used for testing as well
                 f.write(file.text)
-            file.type = self._define_type(file.text)
+            file.type = self._define_type(file)
             name += 1
             for match in self.FILE_END:
                 if re.search(match, file.text, flags=re.I):
                     file.end_file = True
 
-        if len(self.files) > 8:
+        if len(self.files) > 15:
             self.documents = self._divide_into_documents()
         else:
-            self.documents = [self.files]
+            self.documents.append(self.files)
 
     def analyze(self):
         answer = []
@@ -163,8 +187,9 @@ class Scanner:
                 doc['context'] = context
             elif type_ == 'balance':
                 doc['type'] = 'balance'
-            else:
-                pass
+            elif type_ == 'passport':
+                doc['type'] = 'passport'
+                doc['context'] = self._analyze_passport(document)
 
             if doc != {}:
                 answer.append(doc)
@@ -216,7 +241,9 @@ class Scanner:
             # TODO 
             return pages
 
-    def _define_type(self, text):
+    def _define_type(self, file):
+
+        text = file.text
 
         for doc_type in self.MATCHES.keys():
             for match in self.MATCHES[doc_type]:
@@ -224,6 +251,9 @@ class Scanner:
                     if doc_type == 'others':
                         return 'others/{}'.format(match)
                     return doc_type
+
+        if file.is_passport():
+            return 'passport'
     
     def _divide_into_documents(self):
         
@@ -246,11 +276,13 @@ class Scanner:
         for page in document:
             if page.type is None:
                 page.type = 'NotDefined'
-            if page.type not in potential_types.keys():
-                potential_types[page.type] = 0
-            potential_types[page.type] += 1
+            else:
+                if page.type not in potential_types.keys():
+                    potential_types[page.type] = 0
+                potential_types[page.type] += 1
 
         inverse = [(value, key) for key, value in potential_types.items()]
+
         print(inverse)
         return max(inverse)[1]
 
@@ -325,6 +357,23 @@ class Scanner:
         return (adress, time, landlord)
 
 
+    def _analyze_passport(self, document):
+
+        text = ''
+
+        for page in document:
+            image = cv2.imread('tmp/{}'.format(page.filename))
+            imutils.rotate_bound(image, 90 * page.rotates)
+            cv2.imwrite('tmp/{}'.format(page.filename), image)
+
+            image = Image.open('tmp/{}'.format(page.filename))
+            image_text = image_to_string(image)
+
+            text += image_text
+
+        return text
+
+
 @app.route('/uploader', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
@@ -334,11 +383,11 @@ def upload_file():
         scanner = Scanner('', f.filename)
         scanner.prepare()
         result = scanner.analyze()
-        result = result[0]
 
         answer = json.dumps(result)
 
         return answer
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
