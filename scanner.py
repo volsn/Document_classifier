@@ -12,6 +12,9 @@ from flask import render_template, Flask, request, make_response
 from werkzeug import secure_filename
 import cv2
 import imutils
+from imutils.object_detection import non_max_suppression
+import numpy as np
+import passport
 
 app = Flask(__name__)
 
@@ -67,8 +70,7 @@ class Scanner:
 
     STATUTE = {
         'rights': ['общество вправе', "общество обладает", "Общество может"],
-        'authority': ["УПРАВЛЕНИЕ ОБЩЕСТВОМ", 'органами общества', "органами управления общества", "органом общества", \
-                                                                           "органам управления общества"],
+        'authority': ["органами управления общества", "органам управления общества"],
         'term': ['директор общества принимается', "срок полномочий", "директор назначается", "срок полномочий", 'Директор избирается'],
         "powers": ['директор [а-я ]{0,20} осуществляет [а-я ]{0,20} полномочия:', 'директор [а-я ]{0,60}общества:'],
         "limits": ['директор [а-я ]{0,20} не вправе', 'не вправе'],
@@ -94,13 +96,17 @@ class Scanner:
     "statute": ["деятельности общества", "статус общества", \
         "капитал общества", "участника общества", "выход участника из общества", \
         "распределение прибыли", "фонды общества", "собрание участников"],
-    "others": ["информационная картьта", "отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
+    "others": ["информационная карта", "отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
     }    
 
     def __init__(self, path, file_name):
 
+        global STATUS
+        STATUS = 'Conerting to PNG'
+
         self.files = []
         self.documents = []
+        
 
         if file_name.endswith('.zip') or file_name.endswith('.rar'):
             self._unzip(path, file_name)
@@ -134,7 +140,7 @@ class Scanner:
             with open('text/{}'.format(name), 'r') as f:
                 text = f.read()
             page = Page(text=text)
-            page.type = self._define_type(page.text)
+            page.type = self._define_type(page)
             self.files.append(page)
 
         self.documents = [self.files]
@@ -144,6 +150,9 @@ class Scanner:
 
         name = 0
         for file in self.files:
+            global STATUS
+            STATUS = 'Procesing {} file'.format(name)
+
             file.get_text()
             with open('text/{}.txt'.format(name), 'w') as f:  # Used for testing as well
                 f.write(file.text)
@@ -160,6 +169,8 @@ class Scanner:
 
     def analyze(self):
         answer = []
+        global STATUS
+        STATUS = 'Analyzing document'
 
         for document in self.documents:
             doc = {}
@@ -193,8 +204,6 @@ class Scanner:
 
             if doc != {}:
                 answer.append(doc)
-
-        print(answer)
 
         return answer
 
@@ -363,30 +372,54 @@ class Scanner:
 
         for page in document:
             image = cv2.imread('tmp/{}'.format(page.filename))
-            imutils.rotate_bound(image, 90 * page.rotates)
+            image = imutils.rotate_bound(image, 90 * page.rotates)
             cv2.imwrite('tmp/{}'.format(page.filename), image)
 
-            image = Image.open('tmp/{}'.format(page.filename))
-            image_text = image_to_string(image)
-
-            text += image_text
+            print('foo')
+            image = cv2.imread('tmp/{}'.format(page.filename))
+            """
+            cv2.imshow('test', image)
+            cv2.waitKey(0)
+            """
+            text += passport.read_data_from_passport(image)
 
         return text
 
 
+META_DATA = {'data': []}
+STATUS = 'doesnt work'
+
 @app.route('/uploader', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
-        f = request.files['file']
-        f.save(f.filename)
 
-        scanner = Scanner('', f.filename)
-        scanner.prepare()
-        result = scanner.analyze()
+        META_DATA['data'] = []
+        files = request.files.getlist('file')
+        
+        for f in files:
 
-        answer = json.dumps(result)
+            f.save(f.filename)
 
-        return answer
+            scanner = Scanner('', f.filename)
+            scanner.prepare()
+            result = scanner.analyze()[0]
+
+            #answer = json.dumps(result, ensure_ascii=False)
+            global STATUS
+            STATUS = 'doesnt work'
+            META_DATA['data'].append(result)
+
+        return json.dumps(META_DATA, ensure_ascii=False)
+
+
+@app.route('/results', methods=['GET'])
+def return_results():
+    return json.dumps(META_DATA, ensure_ascii=False)
+
+
+@app.route('/status', methods=['GET'])
+def return_status():
+    return STATUS
 
 
 if __name__ == "__main__":
