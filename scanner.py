@@ -1,5 +1,6 @@
 import os
 import zipfile
+import shutil
 import PyPDF2
 import io
 import pdf2image
@@ -71,9 +72,9 @@ class Scanner:
     STATUTE = {
         'rights': ['общество вправе', "общество обладает", "Общество может"],
         'authority': ["органами управления общества", "органам управления общества"],
-        'term': ['директор общества принимается', "срок полномочий", "директор назначается", "срок полномочий", 'Директор избирается'],
-        "powers": ['директор [а-я ]{0,20} осуществляет [а-я ]{0,20} полномочия:', 'директор [а-я ]{0,60}общества:'],
-        "limits": ['директор [а-я ]{0,20} не вправе', 'не вправе'],
+        'term': ['директор общества принимается', "срок полномочий", "директор .{0,60}назначается", "срок полномочий", 'Директор .{0,60}избирается'],
+        "powers": ['директор .{0,20} осуществляет .{0,20} полномочия:', 'директор .{0,60}общества:'],
+        "limits": ['директор .{0,20} не вправе', 'не вправе'],
         'technical': r'[а-я \n,“"\':;\d]*)\.?;?',
     }
 
@@ -106,13 +107,7 @@ class Scanner:
 
         self.files = []
         self.documents = []
-        
 
-        if file_name.endswith('.zip') or file_name.endswith('.rar'):
-            self._unzip(path, file_name)
-            file_name = [f for f in os.listdir(path) if f.split('.')[0] == file_name.split('.')[0] and \
-                            f.split('.')[-1] != file_name.split('.')[-1]]
-            file_name = file_name[0]
 
         if file_name.endswith('.pdf'):
             pages = self._convert_to_image(path, file_name, format='PDF')
@@ -144,7 +139,7 @@ class Scanner:
             self.files.append(page)
 
         self.documents = [self.files]
-        """
+        """        
 
     def prepare(self):
 
@@ -207,10 +202,6 @@ class Scanner:
 
         return answer
 
-    def _unzip(self, path, file_name):
-        with zipfile.ZipFile(os.path.join(path, file_name), 'r') as zip_ref:
-            zip_ref.extractall(path)
-
     def _convert_to_image(self, path, file_name, format=None):
         if format is None:
             return None
@@ -260,10 +251,10 @@ class Scanner:
                     if doc_type == 'others':
                         return 'others/{}'.format(match)
                     return doc_type
-
+        
         if file.is_passport():
             return 'passport'
-    
+        
     def _divide_into_documents(self):
         
         documents = []
@@ -344,15 +335,15 @@ class Scanner:
 
         adress = ''
         for match in self.RENT['adress']:
-            if re.search(r'{} [а-я .,\n0-9/]*[^кв.м]?[^(]?'.format(match), text, flags=re.I):
-                adress = re.search(r'{} [а-я .,\n0-9/]*[^кв.м]?[^(]?'.format(match), text, flags=re.I)
+            if re.search(r'\n.*\n.*{}.*\n.*\n'.format(match), text, flags=re.I):
+                adress = re.search(r'(\n.*\n.*{}.*\n.*\n)'.format(match), text, flags=re.I)
                 adress = adress.group(0)
                 break
 
         time = ''
         for match in self.RENT['time']:
-            if re.search(r'срок аренды помещения:[а-я \n,“"\':;\d]*\.?;?', text, flags=re.I):
-                time = re.search(r'{}{}'.format(match, self.RENT['technical']), text, flags=re.I)
+            if re.search(r'{}{}'.format(match, self.RENT['technical']), text, flags=re.I):
+                time = re.search(r'({}{})'.format(match, self.RENT['technical']), text, flags=re.I)
                 time = time.group(0)
                 break
         
@@ -395,21 +386,38 @@ def upload_file():
 
         META_DATA['data'] = []
         files = request.files.getlist('file')
-        
+
         for f in files:
 
-            f.save(f.filename)
-
-            scanner = Scanner('', f.filename)
-            scanner.prepare()
-            result = scanner.analyze()[0]
-
-            #answer = json.dumps(result, ensure_ascii=False)
-            global STATUS
-            STATUS = 'doesnt work'
-            META_DATA['data'].append(result)
+            analyze_document(f)
 
         return json.dumps(META_DATA, ensure_ascii=False)
+
+
+def analyze_document(f):
+
+    f.save(f.filename)
+
+    scanner = Scanner('', f.filename)
+    scanner.prepare()
+    result = scanner.analyze()[0]
+
+    #answer = json.dumps(result, ensure_ascii=False)
+    global STATUS
+    STATUS = 'doesnt work'
+    META_DATA['data'].append(result)
+
+
+def unzip(file_name):
+    if not os.path.exists('archive'):
+        os.mkdir('archive')
+    else:
+        shutil.rmtree('archive')
+        os.mkdir('archive')
+        
+
+    with zipfile.ZipFile(file_name, 'r') as zip_ref:
+        zip_ref.extractall('archive')
 
 
 @app.route('/results', methods=['GET'])
