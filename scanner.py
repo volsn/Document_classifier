@@ -11,6 +11,7 @@ import re
 import json
 from flask import render_template, Flask, request, make_response
 from werkzeug import secure_filename
+from werkzeug.datastructures import FileStorage
 import cv2
 import imutils
 from imutils.object_detection import non_max_suppression
@@ -386,9 +387,12 @@ def upload_file():
 
         META_DATA['data'] = []
         files = request.files.getlist('file')
+        archive = request.files['file']
+
+        if archive.filename.endswith('.zip'):
+            files = unzip(archive.filename)
 
         for f in files:
-
             analyze_document(f)
 
         return json.dumps(META_DATA, ensure_ascii=False)
@@ -396,7 +400,7 @@ def upload_file():
 
 def analyze_document(f):
 
-    f.save(f.filename)
+    #f.save(f.filename)
 
     scanner = Scanner('', f.filename)
     scanner.prepare()
@@ -409,16 +413,14 @@ def analyze_document(f):
 
 
 def unzip(file_name):
-    if not os.path.exists('archive'):
-        os.mkdir('archive')
-    else:
-        shutil.rmtree('archive')
-        os.mkdir('archive')
-        
 
     with zipfile.ZipFile(file_name, 'r') as zip_ref:
-        zip_ref.extractall('archive')
+        zip_ref.extractall()
 
+        files = []
+        for f in zip_ref.infolist():
+            files.append(f)
+        return files
 
 @app.route('/results', methods=['GET'])
 def return_results():
