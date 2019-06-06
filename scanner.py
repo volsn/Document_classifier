@@ -1,5 +1,6 @@
+#!/usr/bin/env python
 import os
-import zipfile
+#import zipfile
 import shutil
 import PyPDF2
 import io
@@ -86,8 +87,13 @@ class Scanner:
         'technical': r'[а-я \n,“"\':;\d]*\.?;?',
     }
 
+    TREATY = {
+        "header": ["юридические адреса", "реквизиты сторон", "подписи сторон"],
+        "role": ['арендодатель', "субарендодатель", "арендатор", "субарендатор", 'исполнитель', 'заказчик', 'поставщик', 'покупатель'],
+    }
+
     MATCHES = {
-    "balance": 
+    "balance":
         ["бухгалтерский", "бухгалтерская", "бухгалтерское", "внеоборотные активы", "оборотные активы", \
         "капитал и резервы", "краткосрочные обязательства", "движение капитала", \
         "прибыль (убыток) до налогообложения", "чиcтая прибыль (убыток)"],
@@ -95,11 +101,12 @@ class Scanner:
         "срок аренды", "обязанности аредатора", "обязанности арендодателя", \
         "права арендатора", "права арендодателя", "порядок расчетов", \
         "арендная плата", "арендной платы", "ответственность сторон"],
+    "treaty": ["договор поставки", "договор субаренды", "договор указания.{0, 25}услуг"],
     "statute": ["деятельности общества", "статус общества", \
         "капитал общества", "участника общества", "выход участника из общества", \
         "распределение прибыли", "фонды общества", "собрание участников"],
     "others": ["информационная карта", "отчет", "заявление", "опись", "заключение", "лицензия", "свидетельство"],
-    }    
+    }
 
     def __init__(self, path, file_name):
 
@@ -124,7 +131,7 @@ class Scanner:
 
 
         name = 0
-        for page in pages: 
+        for page in pages:
             page.image.save(os.path.join('tmp', '{}.png'.format(name)))
             page.filename = '{}.png'.format(name)
             self.files.append(page)
@@ -140,7 +147,7 @@ class Scanner:
             self.files.append(page)
 
         self.documents = [self.files]
-        """        
+        """
 
     def prepare(self):
 
@@ -164,6 +171,7 @@ class Scanner:
             self.documents.append(self.files)
 
     def analyze(self):
+
         answer = []
         global STATUS
         STATUS = 'Analyzing document'
@@ -189,15 +197,20 @@ class Scanner:
                 context['adress'] = data[0]
                 context['time'] = data[1]
                 context['landlord'] = data[2]
-                
+
                 doc['type'] = 'rent'
                 doc['context'] = context
+                doc['parties'] = self.analyze_treaty(document)
             elif type_ == 'balance':
                 doc['type'] = 'balance'
             elif type_ == 'passport':
                 doc['type'] = 'passport'
                 doc['context'] = self._analyze_passport(document)
+            elif type_ == "treaty":
+                context = self.analyze_treaty(document)
 
+                doc['type'] = 'treaty'
+                doc['context'] = context
             if doc != {}:
                 answer.append(doc)
 
@@ -206,13 +219,13 @@ class Scanner:
     def _convert_to_image(self, path, file_name, format=None):
         if format is None:
             return None
-        
+
         elif format == 'PDF':
             pages = list()
-            images = pdf2image.convert_from_path(file_name, dpi=200, fmt="png")
+            images = pdf2image.convert_from_path(file_name)
             if not os.path.exists('tmp'):
                 os.mkdir('tmp')
-            
+
             name = 0
             for img in images:
                 img.save('tmp/{}.png'.format(name))
@@ -231,7 +244,7 @@ class Scanner:
                     img.seek(i)
                 except EOFError:
                     break
-                
+
                 try:
                     img.save('tmp/{}.png'.format(i))
                     temp = Image.open('tmp/{}.png'.format(i))
@@ -239,7 +252,7 @@ class Scanner:
                 except Exception:
                     pass
 
-            # TODO 
+            # TODO
             return pages
 
     def _define_type(self, file):
@@ -252,12 +265,12 @@ class Scanner:
                     if doc_type == 'others':
                         return 'others/{}'.format(match)
                     return doc_type
-        
+
         if file.is_passport():
             return 'passport'
-        
+
     def _divide_into_documents(self):
-        
+
         documents = []
         recent_document = []
 
@@ -289,8 +302,6 @@ class Scanner:
 
 
     def _analyze_statute(self, document):
-
-        text = ''
 
         for page in document:
             text += page.text
@@ -327,6 +338,67 @@ class Scanner:
 
         return (rights, authority, term, powers, limits)
 
+
+
+    def analyze_treaty(self, document):
+
+        text = ''
+        for page in document:
+            text += page.text
+
+        TREATY = {
+            "header": ["юридические адреса", "реквизиты сторон", "подписи сторон"],
+            "role": ['арендодатель', "субарендодатель", "арендатор", "субарендатор", 'исполнитель', 'заказчик', 'поставщик', 'покупатель'],
+        }
+
+        result = {}
+        result['party1'] = {'Название':'', 'Роль':'', 'ИНН': '', "ОГРН": ''}
+        result['party2'] = {'Название':'', 'Роль':'', 'ИНН': '', "ОГРН": ''}
+
+
+        for header in self.TREATY['header']:
+            if re.search(header, text, flags=re.I):
+
+                text = re.search(r'({}.*)'.format(header), text, flags=re.I | re.DOTALL)[1]
+
+                if len(text) > 800:
+                    text = text[:800]
+
+
+            if re.search(r' (\d{10})( |\n)', text):
+                result['party1']['ИНН'] = re.findall(r' (\d{10})( |\n|/)', text)[0][0]
+                result['party2']['ИНН'] = re.findall(r' (\d{10})( |\n|/)', text)[1][0]
+
+            if re.search(r' (\d{13})(\n| )', text):
+                result['party1']['ОГРН'] = re.findall(r' (\d{13})(\n| )', text)[0][0]
+                result['party2']['ОГРН'] = re.findall(r' (\d{13})(\n| )', text)[1][0]
+
+
+            for role in self.TREATY['role']:
+                if re.search(role, text, flags=re.I):
+                    result['party1']['Роль'] = re.findall(r'{}'.format(role), text, flags=re.I)[0]
+
+                    request = role + '.{150}'
+                    name_area = re.findall(request, text, flags=re.I | re.DOTALL)[0]
+                    result['party1']['Название'] = re.findall(r'(.{0,10}(«|").{0,30}(»|"))' , name_area, flags=re.I)[0][0]
+                    break
+
+            for role in self.TREATY['role']:
+                if re.search(role, text, flags=re.I) and role != result['party1']['Роль'].lower():
+                    result['party2']['Роль'] = re.findall(r'{}'.format(role), text, flags=re.I)[0]
+
+                    if len(re.findall(r'(.{0,10}(«|").{0,30}(»|"))', name_area, flags=re.I)) >= 2:
+                        result['party2']['Название'] = re.findall(r'(.{0,10}(«|").{0,30}(»|"))', name_area, flags=re.I)[1][0]
+                    else:
+                        request = role + '.{150}'
+                        name_area = re.findall(request, text, flags=re.I | re.DOTALL)[0]
+                        result['party1']['Название'] = re.findall(r'(.{0,10}(«|").{0,30}(»|"))', name_area, flags=re.I)[0][0]
+
+                    break
+
+            result['raw'] = text
+            return result
+
     def _analyze_rent(self, document):
 
         text = ''
@@ -347,13 +419,13 @@ class Scanner:
                 time = re.search(r'({}{})'.format(match, self.RENT['technical']), text, flags=re.I)
                 time = time.group(0)
                 break
-        
+
         landlord = ''
         for match in self.RENT['landlord']:
             if re.search(r'\n.*\n.*{}.*\n.*\n'.format(match), text, flags=re.I):
                 company = re.search(r'(\n.*\n.*{}.*\n.*\n)'.format(match), text, flags=re.I)
                 landlord = company.group(0)
-                break 
+                break
 
         return (adress, time, landlord)
 
@@ -400,7 +472,7 @@ def upload_file():
 
 def analyze_document(f):
 
-    #f.save(f.filename)
+    f.save(f.filename)
 
     scanner = Scanner('', f.filename)
     scanner.prepare()
@@ -433,4 +505,4 @@ def return_status():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True)
