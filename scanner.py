@@ -400,7 +400,7 @@ class Scanner:
                     if len(names_cleaned) >= 2:
                         result['party2']['Название'].append(names_cleaned[1])
 
-                    for role in self.TREATY['role']:
+                     for role in self.TREATY['role']:
                         if re.search(role, text_first_page, flags=re.I):
                             result['party1']['Роль'].append(re.search(role, text_first_page, flags=re.I)[0])
                             break
