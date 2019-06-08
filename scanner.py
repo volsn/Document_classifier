@@ -2,7 +2,6 @@
 import os
 #import zipfile
 import shutil
-import PyPDF2
 import io
 import pdf2image
 from PIL import Image
@@ -379,8 +378,8 @@ class Scanner:
                         text_both = re.search('{}.*'.format(match), text_both, flags=re.I)[0]
 
                     result = {}
-                    result['party1'] = {'Название':[], 'Роль':[], 'ИНН': '', "ОГРН": ''}
-                    result['party2'] = {'Название':[], 'Роль':[], 'ИНН': '', "ОГРН": ''}
+                    result['party1'] = {'Название':[], 'Роль':[], 'ИНН': '', "ОГРН": '', 'адрес': '', 'подписант': ''}
+                    result['party2'] = {'Название':[], 'Роль':[], 'ИНН': '', "ОГРН": '', 'адрес': '', 'подписант': ''}
 
                     result['raw'] = text_one + text_two
 
@@ -400,7 +399,7 @@ class Scanner:
                     if len(names_cleaned) >= 2:
                         result['party2']['Название'].append(names_cleaned[1])
 
-                     for role in self.TREATY['role']:
+                    for role in self.TREATY['role']:
                         if re.search(role, text_first_page, flags=re.I):
                             result['party1']['Роль'].append(re.search(role, text_first_page, flags=re.I)[0])
                             break
@@ -460,59 +459,104 @@ class Scanner:
                     if rs2:
                         result['party1']['р/с'] = rs2[0].replace('\n', '').replace(' ', '')
 
-                    adress1 = re.search(r'юридический адрес(.{75})', text_one, flags=re.I)
+                    adress1 = re.search(r'(Юридический адрес.{0,100})(Фактический|ИНН|р/с|ОГРН)', text_one, flags=re.I | re.DOTALL)
                     if adress1:
                         result['party1']['адрес'] = adress1[0].replace('\n', '')
-                    adress2 = re.search(r'юридический адрес(.{75})', text_two, flags=re.I)
+
+                    adress2 = re.search(r'(Юридический адрес.{0,150})(Фактический|ИНН|р/с|ОГРН)', text_two, flags=re.I | re.DOTALL)
                     if adress2:
-                        result['party2']['адрес'] = adress2[0].replace('\n', ' ')
+                        result['party2']['адрес'] = adress2[0].replace('\n', '')
+
+                    # Looking for signer
+                    sign1 = re.search('/({0, 20})/', text_one, flags=re.I)
+                    if sign1:
+                        result['party1']['подписант'] = sign1[0]
+                    else:
+                        sign1 = re.findall(r'([А-Я]{4,15}.{0,2}[А-Я]{1}\.[А-Я]{1}\.)', text_one, flags=re.I)
+
+                        if sign1:
+                            signs = []
+                            for sign in sign1:
+                                signs.append(sign)
+                            signs.sort(key=len)
+
+                            result['party1']['подписант'] = signs[-1]
+                            result['all_names'] = signs
+
+                    sign2 = re.search('/({0, 20})/', text_two, flags=re.I)
+                    if sign2:
+                        result['party2']['подписант'] = sign2[0]
+                    else:
+                        sign2 = re.findall(r'([А-Я]{4,15}.{0,2}[А-Я]{1}\.[А-Я]{1}\.)', text_two, flags=re.I)
+
+                        if sign2:
+                            signs = []
+                            for sign in sign2:
+                                if sign != result['party1']['подписант']:
+                                    signs.append(sign)
+                            signs.sort(key=len)
+
+                            result['party2']['подписант'] = signs[-1]
+
 
                     if result['party2']['ИНН'] == '' and result['party2']['ОГРН'] == '':
 
-                            text = text_both
+                        text = text_both
 
-                            if re.search(r' (\d{10})( |\n)', text):
-                                inn = re.findall(r' (\d{10})( |\n|/)', text)
-                                if inn:
-                                    result['party1']['ИНН'] = inn[0][0]
-                                if len(inn) >= 2:
-                                    result['party2']['ИНН'] = inn[1][0]
+                        if re.search(r' (\d{10})( |\n)', text):
+                            inn = re.findall(r' (\d{10})( |\n|/)', text)
+                            if inn:
+                                result['party1']['ИНН'] = inn[0][0]
+                            if len(inn) >= 2:
+                                result['party2']['ИНН'] = inn[1][0]
 
-                            if re.search(r' (\d{13})(\n| )', text):
-                                ogrn = re.findall(r' (\d{13})(\n| )', text)
-                                if ogrn:
-                                    result['party1']['ОГРН'] = ogrn[0][0]
-                                if len(ogrn) >= 2:
-                                    result['party2']['ОГРН'] = ogrn[1][0]
+                        if re.search(r' (\d{13})(\n| )', text):
+                            ogrn = re.findall(r' (\d{13})(\n| )', text)
+                            if ogrn:
+                                result['party1']['ОГРН'] = ogrn[0][0]
+                            if len(ogrn) >= 2:
+                                result['party2']['ОГРН'] = ogrn[1][0]
 
 
-                            for role in self.TREATY['role']:
-                                if re.search(role, text, flags=re.I):
-                                    result['party1']['Роль'] = re.findall(r'{}'.format(role), text, flags=re.I)[0]
+                        for role in self.TREATY['role']:
+                            if re.search(role, text, flags=re.I):
+                                result['party1']['Роль'] = re.findall(r'{}'.format(role), text, flags=re.I)[0]
 
+                                request = role + '.{150}'
+                                name_area = re.findall(request, text, flags=re.I | re.DOTALL)
+                            if name_area:
+                                name = re.search(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))' , name_area, flags=re.I)
+                                if name:
+                                    result['party2']['Название'].append(name[0])
+                            break
+
+                        for role in self.TREATY['role']:
+                            if re.search(role, text, flags=re.I) and role != result['party1']['Роль'].lower():
+                                result['party2']['Роль'] = re.findall(r'{}'.format(role), text, flags=re.I)[0]
+
+                                if len(re.findall(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))', name_area, flags=re.I)) >= 2:
+                                    result['party2']['Название'] = re.findall(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))', name_area, flags=re.I)[1][0]
+                                else:
                                     request = role + '.{150}'
                                     name_area = re.findall(request, text, flags=re.I | re.DOTALL)
-                                if name_area:
-                                    name = re.search(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))' , name_area, flags=re.I)
-                                    if name:
-                                        result['party2']['Название'].append(name[0])
+                                    if name_area:
+                                        name = re.search(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))' , name_area, flags=re.I)
+                                        if name:
+                                            result['party2']['Название'].append(name[0])
+                                    break
                                 break
 
-                            for role in self.TREATY['role']:
-                                if re.search(role, text, flags=re.I) and role != result['party1']['Роль'].lower():
-                                    result['party2']['Роль'] = re.findall(r'{}'.format(role), text, flags=re.I)[0]
+                        adresses = re.findall(r'(Юридический адрес.{0,150})Фактический|ИНН|р/с|ОГРН', text, flags=re.I | re.DOTALL)
+                        if adresses:
+                            result['party1']['адрес'] = adresses[0]
+                        if len(adresses) >= 2:
+                            result['party2']['адрес'] = adresses[1]
 
-                                    if len(re.findall(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))', name_area, flags=re.I)) >= 2:
-                                        result['party2']['Название'] = re.findall(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))', name_area, flags=re.I)[1][0]
-                                    else:
-                                        request = role + '.{150}'
-                                        name_area = re.findall(request, text, flags=re.I | re.DOTALL)
-                                        if name_area:
-                                            name = re.search(r'((ООО|ОАО|АО).{0,3}(«|").{0,30}(»|"))' , name_area, flags=re.I)
-                                            if name:
-                                                result['party2']['Название'].append(name[0])
-                                        break
-                                    break
+                        adresses = re.findall(r'(Юридический адрес.{0,150})Фактический|ИНН|р/с|ОГРН', text, flags=re.I | re.DOTALL)
+                        if adresses:
+                            result['party1']['адрес'] = adresses[0]
+                        if len(adresses) >= 2:
+                            result['party2']['адрес'] = adresses[1]
 
                     return result
 
